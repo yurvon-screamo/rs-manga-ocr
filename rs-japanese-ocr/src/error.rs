@@ -16,4 +16,13 @@ pub enum JapaneseOCRError {
 
     #[error("Model error: {0}")]
     Model(String),
+
+    #[error("Model download error: {0}")]
+    Download(String),
+
+    #[error("Cache error: {0}")]
+    Cache(String),
+
+    #[error("Configuration error: {0}")]
+    Config(String),
 }

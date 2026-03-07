@@ -14,9 +14,16 @@ const IMAGE_RESIZE_H: u32 = 224;
 const PIXEL_NORM_FACTOR: f32 = 255.0;
 const NORM_MEAN: [f32; 3] = [0.5, 0.5, 0.5];
 const NORM_STD: [f32; 3] = [0.5, 0.5, 0.5];
+// [CLS] token - начало последовательности
+const DEFAULT_BOS_TOKEN_ID: u32 = 2;
+// [SEP] token - конец последовательности
+const DEFAULT_EOS_TOKEN_ID: u32 = 3;
 
+#[cfg(feature = "static-model")]
 static ENCODER_BYTES: &[u8] = include_bytes!("model/encoder_model.onnx");
+#[cfg(feature = "static-model")]
 static DECODER_BYTES: &[u8] = include_bytes!("model/decoder_model.onnx");
+#[cfg(feature = "static-model")]
 static TOKENIZER_BYTES: &[u8] = include_bytes!("model/tokenizer.json");
 
 pub struct JapaneseOCRModel {
@@ -27,6 +34,7 @@ pub struct JapaneseOCRModel {
 }
 
 impl JapaneseOCRModel {
+    #[cfg(feature = "static-model")]
     pub fn load() -> Result<Self, JapaneseOCRError> {
         let device = Device::Cpu;
 
@@ -47,6 +55,77 @@ impl JapaneseOCRModel {
         })
     }
 
+    #[cfg(all(not(feature = "static-model"), target_arch = "wasm32"))]
+    pub async fn load() -> Result<Self, JapaneseOCRError> {
+        use crate::ModelConfig;
+
+        let config = ModelConfig::new();
+        Self::load_with_config_internal(config).await
+    }
+
+    #[cfg(all(not(feature = "static-model"), not(target_arch = "wasm32")))]
+    pub async fn load() -> Result<Self, JapaneseOCRError> {
+        use crate::ModelConfig;
+
+        let config = ModelConfig::new();
+        Self::load_with_config_internal(config).await
+    }
+
+    pub fn from_bytes(
+        encoder_bytes: Vec<u8>,
+        decoder_bytes: Vec<u8>,
+        tokenizer_bytes: Vec<u8>,
+    ) -> Result<Self, JapaneseOCRError> {
+        let device = Device::Cpu;
+
+        let tokenizer = Tokenizer::from_bytes(&tokenizer_bytes)
+            .map_err(|e| JapaneseOCRError::Tokenizer(format!("Failed to load tokenizer: {}", e)))?;
+
+        let encoder = ModelProto::decode(encoder_bytes.as_slice())
+            .map_err(|e| JapaneseOCRError::Model(format!("Failed to decode encoder: {}", e)))?;
+
+        let decoder = ModelProto::decode(decoder_bytes.as_slice())
+            .map_err(|e| JapaneseOCRError::Model(format!("Failed to decode decoder: {}", e)))?;
+
+        Ok(Self {
+            encoder,
+            decoder,
+            tokenizer,
+            device,
+        })
+    }
+
+    #[cfg(feature = "static-model")]
+    pub fn with_config(_config: crate::ModelConfig) -> Result<Self, JapaneseOCRError> {
+        Self::load()
+    }
+
+    #[cfg(all(not(feature = "static-model"), target_arch = "wasm32"))]
+    pub async fn with_config(config: crate::ModelConfig) -> Result<Self, JapaneseOCRError> {
+        Self::load_with_config_internal(config).await
+    }
+
+    #[cfg(all(not(feature = "static-model"), not(target_arch = "wasm32")))]
+    pub async fn with_config(config: crate::ModelConfig) -> Result<Self, JapaneseOCRError> {
+        Self::load_with_config_internal(config).await
+    }
+
+    #[cfg(not(feature = "static-model"))]
+    async fn load_with_config_internal(
+        config: crate::ModelConfig,
+    ) -> Result<Self, JapaneseOCRError> {
+        use crate::ModelLoader;
+
+        let loader = ModelLoader::new(config);
+        let model_files = loader.load_or_download_model().await?;
+
+        Self::from_bytes(
+            model_files.encoder,
+            model_files.decoder,
+            model_files.tokenizer,
+        )
+    }
+
     pub fn run(&mut self, img: &DynamicImage) -> Result<String, JapaneseOCRError> {
         let pixel_values = self.preprocess_image(img)?;
 
@@ -62,8 +141,14 @@ impl JapaneseOCRModel {
             })?
             .clone();
 
-        let bos_token_id = self.tokenizer.token_to_id("[CLS]").unwrap_or(2);
-        let eos_token_id = self.tokenizer.token_to_id("[SEP]").unwrap_or(3);
+        let bos_token_id = self
+            .tokenizer
+            .token_to_id("[CLS]")
+            .unwrap_or(DEFAULT_BOS_TOKEN_ID);
+        let eos_token_id = self
+            .tokenizer
+            .token_to_id("[SEP]")
+            .unwrap_or(DEFAULT_EOS_TOKEN_ID);
 
         let mut input_ids = vec![bos_token_id as i64];
 
@@ -128,21 +213,18 @@ impl JapaneseOCRModel {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    #[test]
-    fn test_ocr() {
-        use super::*;
+    use super::*;
 
-        let img = image::ImageReader::open("test.png")
-            .unwrap()
-            .decode()
-            .unwrap();
+    #[tokio::test]
+    async fn test_ocr() -> Result<(), JapaneseOCRError> {
+        let img = image::ImageReader::open("test.png")?.decode()?;
 
-        let mut model = JapaneseOCRModel::load().unwrap();
+        let mut model = JapaneseOCRModel::load().await?;
 
-        let output = model.run(&img);
-        assert!(output.is_ok());
-        let output = output.unwrap();
+        let output = model.run(&img)?;
         assert_eq!(&output, "悪魔との戦い");
+        Ok(())
     }
 }

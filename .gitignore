@@ -1,3 +1,7 @@
 /target
 
 Cargo.lock
+
+# Model files (downloaded automatically)
+*.onnx
+rs-japanese-ocr/src/model/

@@ -14,5 +14,6 @@ clap.workspace = true
 arboard.workspace = true
 image.workspace = true
 thiserror.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 
 rs-japanese-ocr = { path = "../rs-japanese-ocr" }

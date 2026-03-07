@@ -18,6 +18,8 @@ candle-onnx = { git = "https://github.com/huggingface/candle.git", rev = "8cc682
 tokenizers = { version = "0.22", default-features = false, features = [
     "unstable_wasm",
 ] }
+tokio = { version = "1", default-features = false, features = ["rt", "io-util", "fs"] }
+tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 
 # cli
 clap = { version = "4.5", features = ["derive"] }

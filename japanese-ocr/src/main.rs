@@ -35,9 +35,10 @@ impl Display for Mode {
     }
 }
 
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
     let args = Args::parse();
-    let mut model = JapaneseOCRModel::load()?;
+    let mut model = JapaneseOCRModel::load().await?;
 
     match args.mode {
         Mode::File => {
@@ -55,18 +56,27 @@ fn main() -> Result<(), Error> {
         }
         Mode::Clipboard => {
             let mut clipboard = ClipboardHandler::new(args.refresh_timeout)?;
-            println!("Paste image");
+            println!("Paste image (Ctrl+C to exit)");
 
             loop {
-                let image = clipboard.get_image();
-                if let Some(img) = image {
-                    let text = model.run(&img);
-                    match text {
-                        Ok(text) => {
-                            println!("{}", text);
-                            let _ = clipboard.set_text(&text);
+                tokio::select! {
+                    biased;
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("\nExiting...");
+                        break;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                        let image = clipboard.get_image();
+                        if let Some(img) = image {
+                            let text = model.run(&img);
+                            match text {
+                                Ok(text) => {
+                                    println!("{}", text);
+                                    let _ = clipboard.set_text(&text);
+                                }
+                                Err(err) => println!("Error: {:?}", err),
+                            }
                         }
-                        Err(err) => println!("Error: {:?}", err),
                     }
                 }
             }
